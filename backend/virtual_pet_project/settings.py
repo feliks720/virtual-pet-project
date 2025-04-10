@@ -39,12 +39,15 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Third-party apps
     'rest_framework',
+    'rest_framework.authtoken', 
+    'corsheaders',
     # Local apps
     'pet_api',
 ]
 
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -52,6 +55,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Added
+    'django.middleware.common.CommonMiddleware',
 ]
 
 ROOT_URLCONF = 'virtual_pet_project.urls'
@@ -75,27 +80,16 @@ WSGI_APPLICATION = 'virtual_pet_project.wsgi.application'
 
 
 # Database configuration
-# For local development, you can use SQLite initially
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'virtual_pet_db',
+        'USER': 'postgres',
+        'PASSWORD': '199423han',  # The password you set earlier
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
-
-# Later when ready for PostgreSQL:
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': 'virtual_pet_db',
-#         'USER': 'postgres',
-#         'PASSWORD': 'your_password',
-#         'HOST': 'localhost',
-#         'PORT': '5432',
-#     }
-# }
-
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -141,6 +135,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
@@ -148,7 +143,32 @@ REST_FRAMEWORK = {
     ],
 }
 
-# CORS settings if you need them
+# CORS settings
+# CORS settings
+CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # React development server
+    "http://localhost:3000",  # React app
+]
+CORS_ALLOW_CREDENTIALS = True  # This is critical for sending cookies
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",  # Also add this for CSRF protection
+]
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
 ]

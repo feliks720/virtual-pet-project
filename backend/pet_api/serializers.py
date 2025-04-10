@@ -14,8 +14,8 @@ class PetSerializer(serializers.ModelSerializer):
         model = Pet
         fields = [
             'id', 'name', 'pet_type', 'owner', 'created_at', 'last_interaction',
-            'hunger', 'happiness', 'energy', 'health', 'stage', 'experience',
-            'status'
+            'hunger', 'happiness', 'hygiene', 'sleep', 'health', 'stage', 'experience',
+            'status', 'sleep_start_time'
         ]
 
 class InteractionSerializer(serializers.ModelSerializer):
