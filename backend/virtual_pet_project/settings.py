@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -41,6 +42,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken', 
     'corsheaders',
+    'channels',
     # Local apps
     'pet_api',
 ]
@@ -78,6 +80,14 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'virtual_pet_project.wsgi.application'
 
+ASGI_APPLICATION = 'virtual_pet_project.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        # Use Redis in production
+    },
+}
 
 # Database configuration
 DATABASES = {
@@ -144,15 +154,18 @@ REST_FRAMEWORK = {
 }
 
 # CORS settings
-# CORS settings
 CORS_ALLOW_ALL_ORIGINS = False
+
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React app
 ]
+
 CORS_ALLOW_CREDENTIALS = True  # This is critical for sending cookies
+
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",  # Also add this for CSRF protection
 ]
+
 CORS_ALLOW_METHODS = [
     'DELETE',
     'GET',
@@ -161,6 +174,7 @@ CORS_ALLOW_METHODS = [
     'POST',
     'PUT',
 ]
+
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -172,3 +186,19 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+# Celery Configuration
+CELERY_BROKER_URL = 'redis://localhost:6379/0'  # Use RabbitMQ or Redis in production
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+
+# Set up Celery to run this task periodically
+CELERY_BEAT_SCHEDULE = {
+    'update_pets_every_5_minutes': {
+        'task': 'pet_api.tasks.update_all_pets',
+        'schedule': timedelta(minutes=5),
+    },
+}

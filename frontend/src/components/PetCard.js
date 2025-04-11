@@ -1,40 +1,57 @@
+// src/components/PetCard.js
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { MAX_STAT, CRITICAL_STAT_THRESHOLD, GOOD_STAT_THRESHOLD } from '../constants';
 
 const PetCard = ({ pet }) => {
   // Calculate status colors
   const getStatusColor = (value) => {
-    if (value > 70) return 'success';
-    if (value > 30) return 'warning';
+    if (value > GOOD_STAT_THRESHOLD) return 'success';
+    if (value > CRITICAL_STAT_THRESHOLD) return 'warning';
     return 'danger';
   };
 
-  // Function to convert from 0-1000 scale to percentage for display
-  const calculatePercentage = (value) => {
-    // Make sure value is a valid number before dividing
-    if (typeof value !== 'number' || isNaN(value)) {
-      return '0'; // Return 0 if value is not a valid number
+  // Calculate the appropriate status badge color
+  const getStatusBadgeColor = () => {
+    switch(pet.status) {
+      case 'deceased':
+        return 'danger';
+      case 'sick':
+        return 'warning';
+      case 'sleeping':
+        return 'info';
+      default:
+        return 'success';
     }
-    return Math.floor(value / 10).toString(); // Convert from 0-1000 to 0-100 for display
+  };
+
+  // Format the evolution stage with capitalization
+  const formatStage = (stage) => {
+    return stage.charAt(0).toUpperCase() + stage.slice(1);
   };
 
   return (
     <div className="card mb-3">
       <div className="card-header bg-light">
-        <h5 className="card-title">{pet.name || 'Unknown'} ({pet.pet_type || 'Pet'})</h5>
-        <h6 className="card-subtitle mb-2 text-muted">
-          Stage: {pet.stage || 'Unknown'} | Status: {pet.status || 'Unknown'}
+        <div className="d-flex justify-content-between align-items-center">
+          <h5 className="card-title mb-0">{pet.name || 'Unknown'} ({pet.pet_type || 'Pet'})</h5>
+          <span className={`badge bg-${getStatusBadgeColor()}`}>
+            {pet.status?.charAt(0).toUpperCase() + pet.status?.slice(1) || 'Unknown'}
+          </span>
+        </div>
+        <h6 className="card-subtitle mb-2 text-muted mt-1">
+          Stage: {formatStage(pet.stage) || 'Unknown'}
         </h6>
       </div>
       <div className="card-body">
         <div className="mb-2">
-          <div className="mb-1">Health: {calculatePercentage(pet.health)}%</div>
+          <div className="mb-1">Health: {pet.health}/{MAX_STAT}</div>
           <div className="progress">
             <div 
-              className={`progress-bar bg-${getStatusColor(pet.health / 10)}`} 
+              className={`progress-bar bg-${getStatusColor(pet.health)}`} 
               role="progressbar" 
-              style={{ width: `${calculatePercentage(pet.health)}%` }}
-              aria-valuenow={calculatePercentage(pet.health)} 
+              style={{ width: `${(pet.health / MAX_STAT) * 100}%` }}
+              aria-valuenow={(pet.health / MAX_STAT) * 100} 
               aria-valuemin="0" 
               aria-valuemax="100"
             ></div>
@@ -42,26 +59,26 @@ const PetCard = ({ pet }) => {
         </div>
         <div className="row">
           <div className="col-6">
-            <div className="mb-1">Hunger: {calculatePercentage(pet.hunger)}%</div>
+            <div className="mb-1">Hunger: {pet.hunger}/{MAX_STAT}</div>
             <div className="progress mb-2">
               <div 
-                className={`progress-bar bg-${getStatusColor(pet.hunger / 10)}`} 
+                className={`progress-bar bg-${getStatusColor(pet.hunger)}`} 
                 role="progressbar" 
-                style={{ width: `${calculatePercentage(pet.hunger)}%` }}
-                aria-valuenow={calculatePercentage(pet.hunger)} 
+                style={{ width: `${(pet.hunger / MAX_STAT) * 100}%` }}
+                aria-valuenow={(pet.hunger / MAX_STAT) * 100} 
                 aria-valuemin="0" 
                 aria-valuemax="100"
               ></div>
             </div>
           </div>
           <div className="col-6">
-            <div className="mb-1">Happiness: {calculatePercentage(pet.happiness)}%</div>
+            <div className="mb-1">Happiness: {pet.happiness}/{MAX_STAT}</div>
             <div className="progress mb-2">
               <div 
-                className={`progress-bar bg-${getStatusColor(pet.happiness / 10)}`} 
+                className={`progress-bar bg-${getStatusColor(pet.happiness)}`} 
                 role="progressbar" 
-                style={{ width: `${calculatePercentage(pet.happiness)}%` }}
-                aria-valuenow={calculatePercentage(pet.happiness)} 
+                style={{ width: `${(pet.happiness / MAX_STAT) * 100}%` }}
+                aria-valuenow={(pet.happiness / MAX_STAT) * 100} 
                 aria-valuemin="0" 
                 aria-valuemax="100"
               ></div>
@@ -70,35 +87,42 @@ const PetCard = ({ pet }) => {
         </div>
         <div className="row">
           <div className="col-6">
-            <div className="mb-1">Hygiene: {calculatePercentage(pet.hygiene)}%</div>
+            <div className="mb-1">Hygiene: {pet.hygiene}/{MAX_STAT}</div>
             <div className="progress mb-2">
               <div 
-                className={`progress-bar bg-${getStatusColor(pet.hygiene / 10)}`} 
+                className={`progress-bar bg-${getStatusColor(pet.hygiene)}`} 
                 role="progressbar" 
-                style={{ width: `${calculatePercentage(pet.hygiene)}%` }}
-                aria-valuenow={calculatePercentage(pet.hygiene)} 
+                style={{ width: `${(pet.hygiene / MAX_STAT) * 100}%` }}
+                aria-valuenow={(pet.hygiene / MAX_STAT) * 100} 
                 aria-valuemin="0" 
                 aria-valuemax="100"
               ></div>
             </div>
           </div>
           <div className="col-6">
-            <div className="mb-1">Sleep: {calculatePercentage(pet.sleep)}%</div>
+            <div className="mb-1">Sleep: {pet.sleep}/{MAX_STAT}</div>
             <div className="progress mb-2">
               <div 
-                className={`progress-bar bg-${getStatusColor(pet.sleep / 10)}`} 
+                className={`progress-bar bg-${getStatusColor(pet.sleep)}`} 
                 role="progressbar" 
-                style={{ width: `${calculatePercentage(pet.sleep)}%` }}
-                aria-valuenow={calculatePercentage(pet.sleep)} 
+                style={{ width: `${(pet.sleep / MAX_STAT) * 100}%` }}
+                aria-valuenow={(pet.sleep / MAX_STAT) * 100} 
                 aria-valuemin="0" 
                 aria-valuemax="100"
               ></div>
             </div>
           </div>
         </div>
-        <Link to={`/pets/${pet.id}`} className="btn btn-primary mt-3">
-          Interact with {pet.name}
-        </Link>
+        
+        {pet.status === 'deceased' ? (
+          <div className="alert alert-danger mt-3 mb-0">
+            This pet has passed away.
+          </div>
+        ) : (
+          <Link to={`/pets/${pet.id}`} className="btn btn-primary mt-3">
+            Interact with {pet.name}
+          </Link>
+        )}
       </div>
     </div>
   );

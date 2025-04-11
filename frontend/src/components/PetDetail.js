@@ -1,6 +1,17 @@
-import React, { useState, useEffect } from 'react';
+// src/components/PetDetail.js
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getPetById, interactWithPet, simulateTime } from '../services/api';
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+
+// Import pet stat constants
+import { 
+  MAX_STAT, 
+  CRITICAL_STAT_THRESHOLD, 
+  GOOD_STAT_THRESHOLD, 
+  // FULL_SLEEP_THRESHOLD 
+} from '../constants';
 
 const PetDetail = () => {
   const { id } = useParams();
@@ -9,30 +20,152 @@ const PetDetail = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [interactionResult, setInteractionResult] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshed, setLastRefreshed] = useState(null);
+  const [socket, setSocket] = useState(null);
+  
+  // Refs to store the interval ID and socket for cleanup
+  const refreshIntervalRef = useRef(null);
+  const socketRef = useRef(null);
 
+  // Function to fetch pet data
+  const fetchPet = useCallback(async (isManualRefresh = false) => {
+    try {
+      if (isManualRefresh) {
+        setRefreshing(true);
+      }
+      
+      const data = await getPetById(id);
+      setPet(data);
+      setLoading(false);
+      
+      if (isManualRefresh) {
+        setRefreshing(false);
+      }
+      
+      setLastRefreshed(new Date());
+      return data;
+    } catch (err) {
+      console.error('Failed to fetch pet details:', err);
+      setError('Failed to fetch pet details. Please try again later.');
+      setLoading(false);
+      if (isManualRefresh) {
+        setRefreshing(false);
+      }
+      return null;
+    }
+  }, [id]);
+
+  // Handle WebSocket setup
   useEffect(() => {
-    const fetchPet = async () => {
-      try {
-        const data = await getPetById(id);
-        setPet(data);
-        setLoading(false);
-      } catch (err) {
-        setError('Failed to fetch pet details. Please try again later.');
-        setLoading(false);
+    // Create WebSocket connection
+    // const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const webSocketUrl = 'ws://localhost:8000/ws/pets/';
+    
+    console.log(`Connecting to WebSocket at: ${webSocketUrl}`);
+    const newSocket = new WebSocket(webSocketUrl);
+    socketRef.current = newSocket;
+    
+    newSocket.onopen = () => {
+      console.log('WebSocket connection established');
+      setSocket(newSocket);
+    };
+    
+    newSocket.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      console.log('WebSocket message received:', data);
+      
+      if (data.type === 'pet_update' && data.pet_id === parseInt(id)) {
+        // Handle different update types
+        if (data.update_type === 'status_change') {
+          // Show notification about status change
+          if (data.data.new_status === 'sick') {
+            toast.warning(data.data.message || `${pet?.name} is sick!`);
+          } else if (data.data.new_status === 'deceased') {
+            toast.error(data.data.message || `${pet?.name} has passed away.`);
+          } else if (data.data.old_status === 'sick' && data.data.new_status === 'alive') {
+            toast.success(data.data.message || `${pet?.name} has recovered!`);
+          } else {
+            toast.info(data.data.message || `${pet?.name}'s status changed to ${data.data.new_status}.`);
+          }
+          // Refresh pet data
+          fetchPet();
+        } else if (data.update_type === 'evolution') {
+          // Show notification about evolution
+          toast.success(data.data.message || `${pet?.name} evolved from ${data.data.old_stage} to ${data.data.new_stage}!`);
+          // Refresh pet data
+          fetchPet();
+        } else if (data.update_type === 'critical_stats') {
+          // Show notifications for critical stats
+          if (data.data.warnings && Array.isArray(data.data.warnings)) {
+            data.data.warnings.forEach(warning => {
+              toast.warning(warning);
+            });
+          }
+          // Refresh pet data
+          fetchPet();
+        }
       }
     };
+    
+    newSocket.onclose = (e) => {
+      console.log('WebSocket connection closed:', e);
+      
+      // Try to reconnect after 5 seconds if not an intentional close
+      if (e.code !== 1000) {
+        setTimeout(() => {
+          console.log('Attempting to reconnect WebSocket...');
+          // This will trigger the useEffect again
+          setSocket(null);
+        }, 5000);
+      }
+    };
+    
+    newSocket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+    
+    // Clean up on unmount
+    return () => {
+      if (socketRef.current) {
+        console.log('Closing WebSocket connection...');
+        // Use code 1000 for normal closure
+        socketRef.current.close(1000, 'Component unmounting');
+      }
+    };
+  }, [id, pet?.name, fetchPet]);
 
+  // Set up polling - with a longer interval since we have WebSockets for critical updates
+  useEffect(() => {
+    // Initial fetch
     fetchPet();
-  }, [id]);
+    
+    // Set up auto-refresh every 60 seconds (reduced frequency because of WebSockets)
+    refreshIntervalRef.current = setInterval(() => {
+      fetchPet();
+    }, 60000);
+    
+    // Clean up interval on unmount
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [fetchPet]);
+
+  const handleManualRefresh = () => {
+    fetchPet(true);
+  };
 
   const handleInteraction = async (action) => {
     try {
       setInteractionResult(null);
       // Store the current status before the interaction
-      const wasAsleep = pet.status === 'sleeping';
+      const wasAsleep = pet?.status === 'sleeping';
       
       const updatedPet = await interactWithPet(id, action);
       setPet(updatedPet);
+      setLastRefreshed(new Date());
       
       // Show appropriate message based on the action and status change
       if (action === 'SLEEP') {
@@ -44,6 +177,9 @@ const PetDetail = () => {
       } else {
         setInteractionResult(`Successfully performed ${action} action!`);
       }
+      
+      // Force refresh after interaction to get the most current data
+      setTimeout(() => fetchPet(), 500);
     } catch (err) {
       if (err.response && err.response.data && err.response.data.detail) {
         setInteractionResult(`Error: ${err.response.data.detail}`);
@@ -58,7 +194,11 @@ const PetDetail = () => {
       setInteractionResult(null);
       const updatedPet = await simulateTime(id, minutes);
       setPet(updatedPet);
+      setLastRefreshed(new Date());
       setInteractionResult(`Successfully simulated ${minutes} minute(s) passing!`);
+      
+      // Force refresh after simulation to get the most current data
+      setTimeout(() => fetchPet(), 500);
     } catch (err) {
       setInteractionResult(`Error simulating time. Please try again.`);
       console.error('Time simulation error:', err);
@@ -70,28 +210,64 @@ const PetDetail = () => {
   if (!pet) return <div className="alert alert-warning mt-3">Pet not found</div>;
 
   const getStatusColor = (value) => {
-    if (value > 70) return 'success';
-    if (value > 30) return 'warning';
+    if (value > GOOD_STAT_THRESHOLD) return 'success';
+    if (value > CRITICAL_STAT_THRESHOLD) return 'warning';
     return 'danger';
   };
 
-  // Function to convert from 0-1000 scale to percentage for display
-  const calculatePercentage = (value) => {
-    // Make sure value is a valid number before dividing
-    if (typeof value !== 'number' || isNaN(value)) {
-      return '0'; // Return 0 if value is not a valid number
+  const getStatusBadgeColor = () => {
+    switch(pet.status) {
+      case 'deceased':
+        return 'danger';
+      case 'sick':
+        return 'warning';
+      case 'sleeping':
+        return 'info';
+      default:
+        return 'success';
     }
-    return Math.floor(value / 10).toString(); // Convert from 0-1000 to 0-100 for display
+  };
+
+  // Format the last refreshed time
+  const formatLastRefreshed = () => {
+    if (!lastRefreshed) return '';
+    
+    return lastRefreshed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
   return (
     <div className="container mt-4">
+      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
       <div className="row">
         <div className="col-md-8 offset-md-2">
           <div className="card">
-            <div className="card-header bg-primary text-white">
-              <h2>{pet.name || 'Unknown'} ({pet.pet_type || 'Pet'})</h2>
-              <p className="mb-0">Stage: {pet.stage || 'Unknown'} | Status: {pet.status || 'Unknown'}</p>
+            <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+              <div>
+                <h2>{pet.name || 'Unknown'} ({pet.pet_type || 'Pet'})</h2>
+                <div className="d-flex align-items-center">
+                  <p className="mb-0 me-2">Stage: {pet.stage.charAt(0).toUpperCase() + pet.stage.slice(1) || 'Unknown'}</p>
+                  <span className={`badge bg-${getStatusBadgeColor()} ms-2`}>
+                    {pet.status.charAt(0).toUpperCase() + pet.status.slice(1) || 'Unknown'}
+                  </span>
+                </div>
+              </div>
+              <button 
+                className="btn btn-light btn-sm" 
+                onClick={handleManualRefresh} 
+                disabled={refreshing}
+              >
+                {refreshing ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    Refreshing...
+                  </>
+                ) : (
+                  <>
+                    <i className="bi bi-arrow-clockwise me-1"></i>
+                    Refresh
+                  </>
+                )}
+              </button>
             </div>
             <div className="card-body">
               {pet.status === 'deceased' && (
@@ -100,15 +276,24 @@ const PetDetail = () => {
                 </div>
               )}
               
-              <h4>Pet Stats</h4>
+              <div className="d-flex justify-content-between align-items-center">
+                <h4>Pet Stats</h4>
+                <div>
+                  <small className="text-muted">Last updated: {formatLastRefreshed()}</small>
+                  <small className="text-muted ms-3">
+                    WebSocket: {socket ? <span className="text-success">Connected</span> : <span className="text-danger">Disconnected</span>}
+                  </small>
+                </div>
+              </div>
+              
               <div className="mb-3">
-                <div className="mb-1">Health: {calculatePercentage(pet.health)}%</div>
+                <div className="mb-1">Health: {pet.health}/{MAX_STAT}</div>
                 <div className="progress">
                   <div 
-                    className={`progress-bar bg-${getStatusColor(pet.health / 10)}`} 
+                    className={`progress-bar bg-${getStatusColor(pet.health)}`} 
                     role="progressbar" 
-                    style={{ width: `${pet.health / 10}%` }}
-                    aria-valuenow={pet.health / 10} 
+                    style={{ width: `${(pet.health / MAX_STAT) * 100}%` }}
+                    aria-valuenow={(pet.health / MAX_STAT) * 100} 
                     aria-valuemin="0" 
                     aria-valuemax="100"
                   ></div>
@@ -117,26 +302,26 @@ const PetDetail = () => {
               
               <div className="row">
                 <div className="col-md-6">
-                  <div className="mb-1">Hunger: {calculatePercentage(pet.hunger)}%</div>
+                  <div className="mb-1">Hunger: {pet.hunger}/{MAX_STAT}</div>
                   <div className="progress mb-3">
                     <div 
-                      className={`progress-bar bg-${getStatusColor(pet.hunger / 10)}`} 
+                      className={`progress-bar bg-${getStatusColor(pet.hunger)}`} 
                       role="progressbar" 
-                      style={{ width: `${pet.hunger / 10}%` }}
-                      aria-valuenow={pet.hunger / 10} 
+                      style={{ width: `${(pet.hunger / MAX_STAT) * 100}%` }}
+                      aria-valuenow={(pet.hunger / MAX_STAT) * 100} 
                       aria-valuemin="0" 
                       aria-valuemax="100"
                     ></div>
                   </div>
                 </div>
                 <div className="col-md-6">
-                  <div className="mb-1">Happiness: {calculatePercentage(pet.happiness)}%</div>
+                  <div className="mb-1">Happiness: {pet.happiness}/{MAX_STAT}</div>
                   <div className="progress mb-3">
                     <div 
-                      className={`progress-bar bg-${getStatusColor(pet.happiness / 10)}`} 
+                      className={`progress-bar bg-${getStatusColor(pet.happiness)}`} 
                       role="progressbar" 
-                      style={{ width: `${pet.happiness / 10}%` }}
-                      aria-valuenow={pet.happiness / 10} 
+                      style={{ width: `${(pet.happiness / MAX_STAT) * 100}%` }}
+                      aria-valuenow={(pet.happiness / MAX_STAT) * 100} 
                       aria-valuemin="0" 
                       aria-valuemax="100"
                     ></div>
@@ -146,26 +331,26 @@ const PetDetail = () => {
               
               <div className="row">
                 <div className="col-md-6">
-                  <div className="mb-1">Hygiene: {calculatePercentage(pet.hygiene)}%</div>
+                  <div className="mb-1">Hygiene: {pet.hygiene}/{MAX_STAT}</div>
                   <div className="progress mb-3">
                     <div 
-                      className={`progress-bar bg-${getStatusColor(pet.hygiene / 10)}`} 
+                      className={`progress-bar bg-${getStatusColor(pet.hygiene)}`} 
                       role="progressbar" 
-                      style={{ width: `${pet.hygiene / 10}%` }}
-                      aria-valuenow={pet.hygiene / 10} 
+                      style={{ width: `${(pet.hygiene / MAX_STAT) * 100}%` }}
+                      aria-valuenow={(pet.hygiene / MAX_STAT) * 100} 
                       aria-valuemin="0" 
                       aria-valuemax="100"
                     ></div>
                   </div>
                 </div>
                 <div className="col-md-6">
-                  <div className="mb-1">Sleep: {calculatePercentage(pet.sleep)}%</div>
+                  <div className="mb-1">Sleep: {pet.sleep}/{MAX_STAT}</div>
                   <div className="progress mb-3">
                     <div 
-                      className={`progress-bar bg-${getStatusColor(pet.sleep / 10)}`} 
+                      className={`progress-bar bg-${getStatusColor(pet.sleep)}`} 
                       role="progressbar" 
-                      style={{ width: `${pet.sleep / 10}%` }}
-                      aria-valuenow={pet.sleep / 10} 
+                      style={{ width: `${(pet.sleep / MAX_STAT) * 100}%` }}
+                      aria-valuenow={(pet.sleep / MAX_STAT) * 100} 
                       aria-valuemin="0" 
                       aria-valuemax="100"
                     ></div>
@@ -191,7 +376,7 @@ const PetDetail = () => {
                   <button 
                     className="btn btn-primary m-1" 
                     onClick={() => handleInteraction('PLAY')}
-                    disabled={pet.status === 'deceased' || pet.status === 'sleeping' || pet.sleep < 100}
+                    disabled={pet.status === 'deceased' || pet.status === 'sleeping' || pet.sleep < (CRITICAL_STAT_THRESHOLD / 2)}
                   >
                     Play
                   </button>
@@ -212,7 +397,7 @@ const PetDetail = () => {
                   <button 
                     className="btn btn-warning m-1" 
                     onClick={() => handleInteraction('HEAL')}
-                    disabled={pet.status === 'deceased' || pet.status === 'sleeping' || pet.health === 1000}
+                    disabled={pet.status === 'deceased' || pet.status === 'sleeping' || pet.health === MAX_STAT}
                   >
                     Heal
                   </button>

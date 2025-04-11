@@ -7,6 +7,17 @@ from datetime import timedelta
 from .models import Pet, Interaction
 from .serializers import PetSerializer, InteractionSerializer
 
+# Import constants from models to ensure consistency
+from .models import (
+    MAX_STAT, 
+    CRITICAL_STAT_THRESHOLD, 
+    GOOD_STAT_THRESHOLD, 
+    SICK_HEALTH_THRESHOLD, 
+    FULL_SLEEP_THRESHOLD,
+    EVOLUTION_EXP_TEEN,
+    EVOLUTION_EXP_ADULT
+)
+
 class PetViewSet(viewsets.ModelViewSet):
     serializer_class = PetSerializer
     
@@ -19,9 +30,6 @@ class PetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def interact(self, request, pk=None):
         pet = self.get_object()
-        
-        # Update stats based on time passed
-        pet.update_stats()
         
         # If pet is deceased, no interactions are possible
         if pet.status == 'deceased':
@@ -44,8 +52,8 @@ class PetViewSet(viewsets.ModelViewSet):
                     {"detail": "You can't feed your pet while it's sleeping."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            pet.hunger = 1000  # Fill hunger to max
-            pet.health = min(1000, pet.health + 50) if pet.health < 1000 else pet.health
+            pet.hunger = MAX_STAT  # Fill hunger to max
+            pet.health = min(MAX_STAT, pet.health + 50) if pet.health < MAX_STAT else pet.health
             
         elif action == 'PLAY':
             if pet.status == 'sleeping':
@@ -53,12 +61,12 @@ class PetViewSet(viewsets.ModelViewSet):
                     {"detail": "You can't play with your pet while it's sleeping."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            if pet.sleep < 100:  # 10% of max
+            if pet.sleep < CRITICAL_STAT_THRESHOLD / 2:  # 10% of max
                 return Response(
                     {"detail": "Your pet is too tired to play."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            pet.happiness = 1000  # Fill happiness to max
+            pet.happiness = MAX_STAT  # Fill happiness to max
             pet.hygiene = max(0, pet.hygiene - 50)  # Reduce hygiene
             pet.sleep = max(0, pet.sleep - 100)  # Playing makes pet more tired
             pet.experience += 5
@@ -69,7 +77,7 @@ class PetViewSet(viewsets.ModelViewSet):
                     {"detail": "You can't clean your pet while it's sleeping."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            pet.hygiene = 1000  # Fill hygiene to max
+            pet.hygiene = MAX_STAT  # Fill hygiene to max
             
         elif action == 'SLEEP':
             if pet.status == 'sleeping':
@@ -97,8 +105,8 @@ class PetViewSet(viewsets.ModelViewSet):
                     {"detail": "Your pet is not sick."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            pet.health = min(1000, pet.health + 300)
-            if pet.health >= 300:
+            pet.health = min(MAX_STAT, pet.health + 300)
+            if pet.health >= SICK_HEALTH_THRESHOLD:
                 pet.status = 'alive'
             
         elif action == 'HEAL':
@@ -109,10 +117,10 @@ class PetViewSet(viewsets.ModelViewSet):
                 )
             # Increase health
             health_before = pet.health
-            pet.health = min(1000, pet.health + 200)
+            pet.health = min(MAX_STAT, pet.health + 200)
             
             # If pet was sick and health is now above threshold, recover
-            if pet.status == 'sick' and pet.health >= 300:
+            if pet.status == 'sick' and pet.health >= SICK_HEALTH_THRESHOLD:
                 pet.status = 'alive'
                 
             # If health didn't change, pet is already at max health
@@ -129,12 +137,12 @@ class PetViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             # Give a treat - improves health and happiness
-            pet.health = min(1000, pet.health + 100)
-            pet.happiness = min(1000, pet.happiness + 150)
+            pet.health = min(MAX_STAT, pet.health + 100)
+            pet.happiness = min(MAX_STAT, pet.happiness + 150)
             pet.hunger = max(0, pet.hunger + 20)  # Small decrease in hunger
             
             # If pet was sick and health is now above threshold, recover
-            if pet.status == 'sick' and pet.health >= 300:
+            if pet.status == 'sick' and pet.health >= SICK_HEALTH_THRESHOLD:
                 pet.status = 'alive'
         
         else:
@@ -150,13 +158,9 @@ class PetViewSet(viewsets.ModelViewSet):
         pet.last_interaction = timezone.now()
         pet.save()
         
-        # Check if pet should evolve
-        if pet.experience >= 100 and pet.stage == 'baby':
-            pet.stage = 'teen'
-            pet.experience = 0
-        elif pet.experience >= 200 and pet.stage == 'teen':
-            pet.stage = 'adult'
-            pet.experience = 0
+        # Check if pet should evolve - using the model's evolution check
+        pet._check_evolution()
+        pet.save()
         
         # Get fresh data after all updates
         pet = self.get_object()
@@ -167,27 +171,50 @@ class PetViewSet(viewsets.ModelViewSet):
     def simulate_time(self, request, pk=None):
         pet = self.get_object()
         
-        # Get minutes to simulate (changed from hours)
-        minutes = int(request.data.get('minutes', 5))  # Default to 5 minutes
+        # First, update stats based on real time passed
+        pet.update_stats()
         
-        # Important: We need to iterate 5 minutes at a time to properly handle status changes
-        ticks = minutes // 5
-        for _ in range(ticks):
-            # First, check if pet should wake up if it's sleeping
-            if pet.status == 'sleeping' and pet.sleep_start_time:
-                now = timezone.now()
-                sleep_duration = now - pet.sleep_start_time
+        # Get minutes to simulate
+        minutes = int(request.data.get('minutes', 5))
+        
+        # Calculate how many complete 5-minute intervals to simulate
+        intervals = minutes // 5
+        # Handle any remainder minutes in the final interval
+        remainder = minutes % 5
+        
+        # Simulate each 5-minute interval separately
+        for i in range(intervals):
+            # Skip processing if pet is deceased
+            if pet.status == 'deceased':
+                break
                 
-                # If the pet has been asleep for more than 5 minutes, wake it up
-                if sleep_duration.total_seconds() >= 300:  # 5 minutes in seconds
-                    pet.status = 'alive'
-                    pet.sleep_start_time = None
-                    
-            # Simulate 5 minutes passing
-            pet.last_stat_update = pet.last_stat_update - timedelta(minutes=5)
+            # Use the model's internal methods instead of duplicating logic
+            pet._apply_interval_changes()
             
-            # Apply the stat updates for this period with the current status
-            pet.update_stats()
+            # Update the last interaction time (staggered to reflect real passage of time)
+            pet.last_interaction = timezone.now() - timedelta(minutes=5 * (intervals - i - 1))
+            pet.last_stat_update = timezone.now() - timedelta(minutes=5 * (intervals - i - 1))
+            
+            # Check for evolution
+            pet._check_evolution()
+            
+            # Save changes to persist state between intervals
+            pet.save()
+        
+        # Handle any remainder minutes (less than 5)
+        if remainder > 0 and pet.status != 'deceased':
+            # Use the model's method for partial intervals
+            factor = remainder / 5.0
+            pet._apply_partial_interval_changes(factor)
+            
+            # Final time updates
+            pet.last_interaction = timezone.now()
+            pet.last_stat_update = timezone.now()
+            
+            # Check for evolution
+            pet._check_evolution()
+            
+            pet.save()
         
         # Get fresh data after all updates
         pet = self.get_object()

@@ -33,10 +33,35 @@ api.interceptors.response.use(
   }
 );
 
+// Helper function to validate pet data - ensures data consistency
+const validatePetData = (petData) => {
+  // Basic validation
+  if (!petData || typeof petData !== 'object') {
+    console.error('Invalid pet data received');
+    return null;
+  }
+  
+  // Ensure we got a pet with an ID
+  if (!petData.id) {
+    console.error('Pet data missing ID');
+    return null;
+  }
+  
+  // Ensure all number fields are actually numbers
+  const numericFields = ['health', 'hunger', 'happiness', 'hygiene', 'sleep', 'experience'];
+  numericFields.forEach(field => {
+    if (petData[field] !== undefined && typeof petData[field] !== 'number') {
+      petData[field] = parseInt(petData[field]) || 0; // Convert to number or default to 0
+    }
+  });
+  
+  return petData;
+};
+
 export const loginUser = async (credentials) => {
   try {
     const response = await axios.post(
-      'http://localhost:8000/api/token-auth/',
+      `${API_URL}/token-auth/`,
       credentials
     );
     return response.data;
@@ -49,7 +74,11 @@ export const loginUser = async (credentials) => {
 export const getPets = async () => {
   try {
     const response = await api.get('/pets/');
-    return response.data;
+    // If we receive an array, validate each pet
+    if (Array.isArray(response.data)) {
+      return response.data.map(pet => validatePetData(pet)).filter(pet => pet !== null);
+    }
+    return [];
   } catch (error) {
     console.error('Error fetching pets:', error);
     throw error;
@@ -59,21 +88,13 @@ export const getPets = async () => {
 export const getPetById = async (id) => {
   try {
     const response = await api.get(`/pets/${id}/`);
+    const validatedPet = validatePetData(response.data);
     
-    // Validate that we got a proper pet object back
-    const petData = response.data;
-    if (!petData || typeof petData !== 'object' || !petData.id) {
+    if (!validatedPet) {
       throw new Error('Invalid pet data received from server');
     }
     
-    // Ensure all number fields are actually numbers
-    ['health', 'hunger', 'happiness', 'hygiene', 'sleep'].forEach(field => {
-      if (typeof petData[field] !== 'number') {
-        petData[field] = parseInt(petData[field]) || 0; // Convert to number or default to 0
-      }
-    });
-    
-    return petData;
+    return validatedPet;
   } catch (error) {
     console.error(`Error fetching pet ${id}:`, error);
     throw error;
@@ -83,7 +104,7 @@ export const getPetById = async (id) => {
 export const createPet = async (petData) => {
   try {
     const response = await api.post('/pets/', petData);
-    return response.data;
+    return validatePetData(response.data);
   } catch (error) {
     console.error('Error creating pet:', error);
     throw error;
@@ -93,21 +114,13 @@ export const createPet = async (petData) => {
 export const interactWithPet = async (petId, action) => {
   try {
     const response = await api.post(`/pets/${petId}/interact/`, { action });
+    const validatedPet = validatePetData(response.data);
     
-    // Validate that we got a proper pet object back
-    const petData = response.data;
-    if (!petData || typeof petData !== 'object' || !petData.id) {
-      throw new Error('Invalid pet data received from server');
+    if (!validatedPet) {
+      throw new Error('Invalid pet data received from server after interaction');
     }
     
-    // Ensure all number fields are actually numbers
-    ['health', 'hunger', 'happiness', 'hygiene', 'sleep'].forEach(field => {
-      if (typeof petData[field] !== 'number') {
-        petData[field] = parseInt(petData[field]) || 0; // Convert to number or default to 0
-      }
-    });
-    
-    return petData;
+    return validatedPet;
   } catch (error) {
     console.error(`Error with ${action} interaction:`, error);
     throw error;
@@ -117,21 +130,13 @@ export const interactWithPet = async (petId, action) => {
 export const simulateTime = async (petId, minutes = 5) => {
   try {
     const response = await api.post(`/pets/${petId}/simulate_time/`, { minutes });
+    const validatedPet = validatePetData(response.data);
     
-    // Validate that we got a proper pet object back
-    const petData = response.data;
-    if (!petData || typeof petData !== 'object' || !petData.id) {
-      throw new Error('Invalid pet data received from server');
+    if (!validatedPet) {
+      throw new Error('Invalid pet data received from server after time simulation');
     }
     
-    // Ensure all number fields are actually numbers
-    ['health', 'hunger', 'happiness', 'hygiene', 'sleep'].forEach(field => {
-      if (typeof petData[field] !== 'number') {
-        petData[field] = parseInt(petData[field]) || 0; // Convert to number or default to 0
-      }
-    });
-    
-    return petData;
+    return validatedPet;
   } catch (error) {
     console.error('Error simulating time:', error);
     throw error;

@@ -9,6 +9,7 @@ import PetForm from './components/PetForm';
 import Login from './components/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import 'bootstrap/dist/css/bootstrap.min.css';
+import WebSocketTest from './components/WebSocketTest';
 
 function AppWithRouter() {
   return (
@@ -32,6 +33,7 @@ function AppWithRouter() {
               <PetForm />
             </ProtectedRoute>
           } />
+          <Route path="/socket-test" element={<WebSocketTest />} />
         </Routes>
       </main>
     </div>
