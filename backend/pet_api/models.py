@@ -190,7 +190,7 @@ class Pet(models.Model):
         if self.hygiene < CRITICAL_STAT_THRESHOLD:
             warnings.append(f"{self.name} needs cleaning!")
         
-        if self.sleep < CRITICAL_STAT_THRESHOLD:
+        if self.sleep < CRITICAL_STAT_THRESHOLD and self.status != "sleeping":
             warnings.append(f"{self.name} is very tired!")
         
         if warnings:

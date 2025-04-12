@@ -24,6 +24,9 @@ const PetDetail = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(null);
 
+  // Add a ref to track processed messages
+  const processedMessagesRef = useRef(new Set());
+  
   // Use the shared WebSocket context
   const { connected, latestMessages } = useWebSocket();
   

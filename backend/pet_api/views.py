@@ -157,6 +157,9 @@ class PetViewSet(viewsets.ModelViewSet):
         # Update pet
         pet.last_interaction = timezone.now()
         pet.save()
+
+        # Check for critical stats
+        pet._check_critical_stats()
         
         # Check if pet should evolve - using the model's evolution check
         pet._check_evolution()
@@ -208,15 +211,16 @@ class PetViewSet(viewsets.ModelViewSet):
             pet.last_interaction = timezone.now()
             pet.last_stat_update = timezone.now()
             
-            # Check for evolution
-            pet._check_evolution()
-
-            # Check for critical stats
-            pet._check_critical_stats()
-
             pet.save()
     
+        # Check for evolution
+        pet._check_evolution()
 
+        # Check for critical stats
+        pet._check_critical_stats()
+
+        pet.save()
+        
         # Get fresh data after all updates
         pet = self.get_object()
         serializer = PetSerializer(pet)
