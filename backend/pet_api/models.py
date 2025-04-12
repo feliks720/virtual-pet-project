@@ -72,7 +72,10 @@ class Pet(models.Model):
                 # For anonymous users during development
                 group_name = "pet_updates_anonymous"
                 print(f"Sending to anonymous group")
-                
+            
+            # if update_type == 'critical_stats':
+            #     print(f"CRITICAL STATS SENDING: petID={self.id}, data={data}")
+
             async_to_sync(channel_layer.group_send)(
                 group_name,
                 {
@@ -193,11 +196,13 @@ class Pet(models.Model):
         if self.sleep < CRITICAL_STAT_THRESHOLD and self.status != "sleeping":
             warnings.append(f"{self.name} is very tired!")
         
-        if warnings:
-            self.send_update_to_owner('critical_stats', {
-                'warnings': warnings
-            })
-        else:
+        # Always send an update with the current warnings
+        # If warnings list is empty, it will clear the previous warnings
+        self.send_update_to_owner('critical_stats', {
+            'warnings': warnings
+        })
+        
+        if not warnings:
             print("No critical stats detected")
     
     def _apply_interval_changes(self):

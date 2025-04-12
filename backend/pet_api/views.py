@@ -225,6 +225,24 @@ class PetViewSet(viewsets.ModelViewSet):
         pet = self.get_object()
         serializer = PetSerializer(pet)
         return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def check_stats(self, request):
+        pets = Pet.objects.filter(owner=request.user)
+        warnings_sent = 0
+        
+        for pet in pets:
+            # Only check living pets
+            if pet.status != 'deceased':
+                pet._check_critical_stats()
+                warnings_sent += 1
+        
+        # Return the updated pets along with a count of pets checked
+        serializer = self.get_serializer(pets, many=True)
+        return Response({
+            'pets': serializer.data,
+            'stats_checked': warnings_sent
+        })
 
 
 class InteractionViewSet(viewsets.ReadOnlyModelViewSet):

@@ -14,10 +14,20 @@ const PetList = () => {
   const [lastRefreshed, setLastRefreshed] = useState(null);
 
   // Use the shared WebSocket context
-  const { connected, latestMessages } = useWebSocket();
+  const { connected, relevantMessages, getPetCriticalWarnings } = useWebSocket();
   
   // Ref to store the interval ID for cleanup
   const refreshIntervalRef = useRef(null);
+  
+  // Configure toast options
+  const toastOptions = {
+    position: "top-right",
+    autoClose: false,
+    hideProgressBar: false,
+    closeOnClick: true,
+    pauseOnHover: true,
+    draggable: true
+  };
 
   // Function to fetch pets
   const fetchPets = useCallback(async (isManualRefresh = false) => {
@@ -59,17 +69,14 @@ const PetList = () => {
 
   // Update the WebSocket message handler
   useEffect(() => {
-    if (latestMessages && latestMessages.length > 0 && pets.length > 0) {
+    if (relevantMessages && relevantMessages.length > 0 && pets.length > 0) {
       // For debug purpose
-      console.log("Latest messages:", latestMessages);
+      console.log("Relevant messages:", relevantMessages);
       
       // Check the most recent messages for updates
-      const petUpdateMessages = latestMessages.filter(data => 
+      const petUpdateMessages = relevantMessages.filter(data => 
         data.type === 'pet_update'
       );
-      
-      // Track if we need to fetch pet data (only fetch once per update cycle)
-      let shouldFetchPets = false;
       
       // Process messages
       petUpdateMessages.forEach(data => {
@@ -79,38 +86,99 @@ const PetList = () => {
         
         // Now process the message
         if (data.update_type === 'status_change') {
+          // Create a stable toast ID for status changes
+          const statusToastId = `pet-${data.pet_id}-status-${data.data.new_status}`;
+          
           // Show notification about status change
           if (data.data.new_status === 'sick') {
-            toast.warning(data.data.message || `${petName} is sick!`);
+            toast.warning(data.data.message || `${petName} is sick!`, {
+              ...toastOptions,
+              toastId: statusToastId
+            });
           } else if (data.data.new_status === 'deceased') {
-            toast.error(data.data.message || `${petName} has passed away.`);
+            toast.error(data.data.message || `${petName} has passed away.`, {
+              ...toastOptions,
+              toastId: statusToastId
+            });
           } else if (data.data.old_status === 'sick' && data.data.new_status === 'alive') {
-            toast.success(data.data.message || `${petName} has recovered!`);
+            toast.success(data.data.message || `${petName} has recovered!`, {
+              ...toastOptions,
+              toastId: statusToastId
+            });
           } else {
-            toast.info(data.data.message || `${petName}'s status changed to ${data.data.new_status}.`);
-          }
-          shouldFetchPets = true;
-        } else if (data.update_type === 'evolution') {
-          // Show notification about evolution
-          toast.success(data.data.message || `${petName} evolved from ${data.data.old_stage} to ${data.data.new_stage}!`);
-          shouldFetchPets = true;
-        } else if (data.update_type === 'critical_stats') {
-          // Show notifications for critical stats
-          if (data.data.warnings && Array.isArray(data.data.warnings)) {
-            data.data.warnings.forEach(warning => {
-              toast.warning(warning);
+            toast.info(data.data.message || `${petName}'s status changed to ${data.data.new_status}.`, {
+              ...toastOptions,
+              toastId: statusToastId
             });
           }
-          shouldFetchPets = true;
+        } else if (data.update_type === 'evolution') {
+          // Create a stable toast ID for evolution
+          const evolutionToastId = `pet-${data.pet_id}-evolution-${data.data.new_stage}`;
+          
+          // Show notification about evolution
+          toast.success(data.data.message || `${petName} evolved from ${data.data.old_stage} to ${data.data.new_stage}!`, {
+            ...toastOptions,
+            toastId: evolutionToastId
+          });
+        } else if (data.update_type === 'critical_stats') {
+          // For critical stats, use consistent toast IDs for each warning type
+          if (data.data.warnings && Array.isArray(data.data.warnings)) {
+            data.data.warnings.forEach(warning => {
+              // Extract what type of warning this is
+              let warningType = "unknown";
+              
+              if (warning.includes("hungry")) {
+                warningType = "hunger";
+              } else if (warning.includes("unhappy")) {
+                warningType = "happiness";
+              } else if (warning.includes("cleaning")) {
+                warningType = "hygiene";
+              } else if (warning.includes("tired")) {
+                warningType = "sleep";
+              }
+              
+              // Create a stable toast ID that won't change between message updates
+              const stableToastId = `pet-${data.pet_id}-${warningType}`;
+              
+              // Use the stable ID to prevent duplicate toasts
+              toast.warning(warning, { 
+                ...toastOptions,
+                toastId: stableToastId
+              });
+            });
+          }
         }
       });
-      
-      // Only fetch pets data once if needed
-      // if (shouldFetchPets) {
-      //   fetchPets();
-      // }
     }
-  }, [latestMessages, pets, fetchPets]);
+    
+    // Clean up any stale toast notifications that are no longer valid
+    pets.forEach(pet => {
+      // Get the current critical warnings
+      const currentWarnings = getPetCriticalWarnings(pet.id);
+      
+      // The possible warning types
+      const warningTypes = ["hunger", "happiness", "hygiene", "sleep"];
+      
+      // Check each warning type
+      warningTypes.forEach(type => {
+        const stableToastId = `pet-${pet.id}-${type}`;
+        
+        // If we have a toast for this type but no current warning, dismiss it
+        const hasWarningOfType = currentWarnings.some(warning => {
+          if (type === "hunger" && warning.includes("hungry")) return true;
+          if (type === "happiness" && warning.includes("unhappy")) return true;
+          if (type === "hygiene" && warning.includes("cleaning")) return true;
+          if (type === "sleep" && warning.includes("tired")) return true;
+          return false;
+        });
+        
+        if (!hasWarningOfType) {
+          // Dismiss any toast with this ID
+          toast.dismiss(stableToastId);
+        }
+      });
+    });
+  }, [relevantMessages, pets, getPetCriticalWarnings, toastOptions]);
 
   // Initial fetch and polling setup
   useEffect(() => {

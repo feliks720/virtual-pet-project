@@ -142,3 +142,14 @@ export const simulateTime = async (petId, minutes = 5) => {
     throw error;
   }
 };
+
+export const checkPetStats = async () => {
+  try {
+    // Fix the URL to avoid the duplicate /api/ prefix
+    const response = await api.post('/pets/check_stats/');
+    return response.data.pets;
+  } catch (error) {
+    console.error('Error checking pet stats:', error);
+    throw error;
+  }
+};

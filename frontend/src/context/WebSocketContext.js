@@ -10,9 +10,16 @@ export const WebSocketProvider = ({ children }) => {
   const { isLoggedIn } = useAuth();
   const [connected, setConnected] = useState(false);
   const [messages, setMessages] = useState([]);
+  // Create a criticalStats map to track current critical stats by pet ID
+  const [criticalStats, setCriticalStats] = useState({});
   const socketRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 5;
+  
+  // For debugging
+  useEffect(() => {
+    console.log("Current critical stats:", criticalStats);
+  }, [criticalStats]);
   
   // Wrap the function with useCallback
   const connectWebSocket = useCallback(() => {
@@ -40,7 +47,51 @@ export const WebSocketProvider = ({ children }) => {
         const data = JSON.parse(e.data);
         console.log('RAW WebSocket message received:', e.data);
         console.log('Parsed WebSocket message:', data);
-    
+        
+        // Process critical stats specially
+        if (data.type === 'pet_update' && data.update_type === 'critical_stats') {
+          console.log('DEBUG USE: CRITICAL STATS UPDATE RAW:', JSON.stringify(data));
+          
+          const petId = data.pet_id;
+          const warnings = data.data.warnings || [];
+          
+          // Add debug logging
+          console.log(`Processing critical stats update for pet ${petId}, warnings:`, warnings);
+          
+          // Update our tracker of critical stats
+          setCriticalStats(prev => {
+            // Create a new object to avoid reference issues
+            const newCriticalStats = { ...prev };
+            
+            // If there are warnings, track them by type
+            if (warnings.length > 0) {
+              // Create a new warnings object for this pet
+              const petWarnings = {};
+              
+              warnings.forEach(warning => {
+                if (warning.includes("hungry")) petWarnings.hunger = warning;
+                else if (warning.includes("unhappy")) petWarnings.happiness = warning;
+                else if (warning.includes("cleaning")) petWarnings.hygiene = warning;
+                else if (warning.includes("tired")) petWarnings.sleep = warning;
+              });
+              
+              // Set the warnings for this pet
+              newCriticalStats[petId] = petWarnings;
+              console.log(`Updated critical stats for pet ${petId}:`, petWarnings);
+            } 
+            // If there are no warnings, clear this pet's critical stats
+            else {
+              if (newCriticalStats[petId]) {
+                console.log(`Clearing critical stats for pet ${petId}`);
+                delete newCriticalStats[petId];
+              }
+            }
+            
+            return newCriticalStats;
+          });
+        }
+        
+        // Always update the messages array
         setMessages(prev => {
           const newMessages = [...prev, data];
           // Keep only the latest 100 messages
@@ -102,12 +153,48 @@ export const WebSocketProvider = ({ children }) => {
     return false;
   };
   
+  // Get current critical warnings for a pet
+  const getPetCriticalWarnings = useCallback((petId) => {
+    const petStats = criticalStats[petId] || {};
+    return Object.values(petStats);
+  }, [criticalStats]);
+  
+  // Filter messages to only include current critical stats
+  const getFilteredMessages = useCallback(() => {
+    // Start with non-critical-stats messages
+    const filteredMessages = messages.filter(msg => {
+      return msg.type !== 'pet_update' || msg.update_type !== 'critical_stats';
+    });
+    
+    // Add one critical stats message per pet's active warning types
+    Object.entries(criticalStats).forEach(([petId, warnings]) => {
+      const petIdNum = parseInt(petId);
+      
+      // For each warning type this pet has, add a message
+      Object.entries(warnings).forEach(([warningType, warningMessage]) => {
+        filteredMessages.push({
+          type: 'pet_update',
+          pet_id: petIdNum,
+          update_type: 'critical_stats',
+          data: {
+            warnings: [warningMessage],
+            warning_type: warningType
+          }
+        });
+      });
+    });
+    
+    return filteredMessages;
+  }, [messages, criticalStats]);
+  
   return (
     <WebSocketContext.Provider value={{ 
       connected, 
-      messages, 
+      messages, // Keep original messages for reference
       sendMessage,
-      latestMessages: messages.slice(-20) // Provide the most recent messages
+      getPetCriticalWarnings,
+      relevantMessages: getFilteredMessages(), // Only include current relevant messages
+      latestMessages: messages.slice(-20) // Keep this for backward compatibility 
     }}>
       {children}
     </WebSocketContext.Provider>
