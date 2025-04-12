@@ -25,7 +25,7 @@ const PetDetail = () => {
   const [lastRefreshed, setLastRefreshed] = useState(null);
   
   // Use the shared WebSocket context
-  const { connected, relevantMessages, getPetCriticalWarnings } = useWebSocket();
+  const { connected, relevantMessages, getPetCriticalWarnings, isDuplicateMessage } = useWebSocket();
   
   // Ref to store the interval ID for cleanup
   const refreshIntervalRef = useRef(null);
@@ -71,18 +71,63 @@ const PetDetail = () => {
   // Update the WebSocket message handler
   useEffect(() => {
     if (relevantMessages && relevantMessages.length > 0 && pet) {
-      // For debug purpose
-      console.log("Relevant messages:", relevantMessages);
+      console.log("PetDetail: Processing relevant messages:", relevantMessages);
       
-      // Check the most recent messages for updates relevant to this pet
+      // Check for messages for this specific pet
       const relevantPetMessages = relevantMessages.filter(data => 
         data.type === 'pet_update' && data.pet_id === parseInt(id)
       );
       
+      console.log(`PetDetail: Found ${relevantPetMessages.length} messages for pet ${id}`);
+      
       // Process relevant messages
       relevantPetMessages.forEach(data => {
-        // Now process the message
-        if (data.update_type === 'status_change') {
+        // Create a unique message ID
+        const messageTimestamp = data.data?.timestamp || Date.now() / 1000;
+        const messageId = `${data.pet_id}-${data.update_type}-${messageTimestamp}`;
+        
+        // Handle critical stats always, but other messages only if not duplicates
+        const isCriticalStats = data.update_type === 'critical_stats';
+        
+        // Skip if it's a duplicate message we've already processed (except critical stats)
+        if (!isCriticalStats && isDuplicateMessage && isDuplicateMessage(messageId)) {
+          console.log(`Skipping already processed message: ${messageId}`);
+          return;
+        }
+        
+        // For critical stats, always process them regardless of duplicates
+        if (data.update_type === 'critical_stats') {
+          console.log("PetDetail: Processing critical stats:", data);
+          
+          // For critical stats, use consistent toast IDs for each warning type
+          if (data.data.warnings && Array.isArray(data.data.warnings)) {
+            data.data.warnings.forEach(warning => {
+              // Extract what type of warning this is
+              let warningType = "unknown";
+              
+              if (warning.includes("hungry")) {
+                warningType = "hunger";
+              } else if (warning.includes("unhappy")) {
+                warningType = "happiness";
+              } else if (warning.includes("cleaning")) {
+                warningType = "hygiene";
+              } else if (warning.includes("tired")) {
+                warningType = "sleep";
+              }
+              
+              // Create a stable toast ID that won't change between message updates
+              const stableToastId = `pet-${data.pet_id}-${warningType}`;
+              console.log(`Showing critical stats toast for ${warningType}: ${warning}`);
+              
+              // Use the stable ID to prevent duplicate toasts
+              toast.warning(warning, { 
+                ...toastOptions,
+                toastId: stableToastId
+              });
+            });
+          }
+        } 
+        else if (data.update_type === 'status_change') {
           // Create a stable toast ID for status changes
           const statusToastId = `pet-${data.pet_id}-status-${data.data.new_status}`;
           
@@ -117,33 +162,6 @@ const PetDetail = () => {
             ...toastOptions,
             toastId: evolutionToastId
           });
-        } else if (data.update_type === 'critical_stats') {
-          // For critical stats, use consistent toast IDs for each warning type
-          if (data.data.warnings && Array.isArray(data.data.warnings)) {
-            data.data.warnings.forEach(warning => {
-              // Extract what type of warning this is
-              let warningType = "unknown";
-              
-              if (warning.includes("hungry")) {
-                warningType = "hunger";
-              } else if (warning.includes("unhappy")) {
-                warningType = "happiness";
-              } else if (warning.includes("cleaning")) {
-                warningType = "hygiene";
-              } else if (warning.includes("tired")) {
-                warningType = "sleep";
-              }
-              
-              // Create a stable toast ID that won't change between message updates
-              const stableToastId = `pet-${data.pet_id}-${warningType}`;
-              
-              // Use the stable ID to prevent duplicate toasts
-              toast.warning(warning, { 
-                ...toastOptions,
-                toastId: stableToastId
-              });
-            });
-          }
         }
       });
     }
@@ -175,31 +193,53 @@ const PetDetail = () => {
         }
       });
     }
-  }, [relevantMessages, id, pet, getPetCriticalWarnings, toastOptions]);
+  }, [relevantMessages, id, pet, getPetCriticalWarnings, toastOptions, isDuplicateMessage]);
+
+  // No need for local message cleanup - WebSocketContext handles this
 
   // Initial fetch and polling setup
   useEffect(() => {
+    let isMounted = true;
+
     // Initial fetch
     fetchPet();
 
+    // Check stats immediately on component mount
     const checkStats = async () => {
       try {
+        console.log("Checking pet stats on page load...");
         await checkPetStats();
         console.log("Pet stats checked on page load");
+        
+        // Wait a bit longer to make sure WebSocket has time to deliver messages
+        if (isMounted) {
+          setTimeout(() => {
+            console.log("Fetching pet data after stats check");
+            fetchPet();
+          }, 1000);
+        }
       } catch (err) {
         console.error("Error checking pet stats:", err);
       }
     };
     
-    checkStats();
+    // Wait a short moment before checking stats to ensure connection is ready
+    setTimeout(() => {
+      if (isMounted) {
+        checkStats();
+      }
+    }, 500);
 
     // Set up auto-refresh every 60 seconds
     refreshIntervalRef.current = setInterval(() => {
-      fetchPet();
+      if (isMounted) {
+        fetchPet();
+      }
     }, 60000);
     
     // Clean up interval on unmount
     return () => {
+      isMounted = false;
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
       }

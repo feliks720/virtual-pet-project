@@ -12,6 +12,8 @@ export const WebSocketProvider = ({ children }) => {
   const [messages, setMessages] = useState([]);
   // Create a criticalStats map to track current critical stats by pet ID
   const [criticalStats, setCriticalStats] = useState({});
+  // Add a new state to track processed message timestamps
+  const [processedMessageTimestamps, setProcessedMessageTimestamps] = useState({});
   const socketRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 5;
@@ -48,24 +50,20 @@ export const WebSocketProvider = ({ children }) => {
         console.log('RAW WebSocket message received:', e.data);
         console.log('Parsed WebSocket message:', data);
         
-        // Process critical stats specially
+        // Special handling for critical stats to ensure they always get processed
         if (data.type === 'pet_update' && data.update_type === 'critical_stats') {
-          console.log('DEBUG USE: CRITICAL STATS UPDATE RAW:', JSON.stringify(data));
+          console.log('CRITICAL STATS UPDATE RECEIVED:', JSON.stringify(data));
           
           const petId = data.pet_id;
           const warnings = data.data.warnings || [];
           
-          // Add debug logging
           console.log(`Processing critical stats update for pet ${petId}, warnings:`, warnings);
           
-          // Update our tracker of critical stats
+          // Always update critical stats regardless of duplicates
           setCriticalStats(prev => {
-            // Create a new object to avoid reference issues
             const newCriticalStats = { ...prev };
             
-            // If there are warnings, track them by type
             if (warnings.length > 0) {
-              // Create a new warnings object for this pet
               const petWarnings = {};
               
               warnings.forEach(warning => {
@@ -75,11 +73,9 @@ export const WebSocketProvider = ({ children }) => {
                 else if (warning.includes("tired")) petWarnings.sleep = warning;
               });
               
-              // Set the warnings for this pet
               newCriticalStats[petId] = petWarnings;
               console.log(`Updated critical stats for pet ${petId}:`, petWarnings);
             } 
-            // If there are no warnings, clear this pet's critical stats
             else {
               if (newCriticalStats[petId]) {
                 console.log(`Clearing critical stats for pet ${petId}`);
@@ -89,14 +85,57 @@ export const WebSocketProvider = ({ children }) => {
             
             return newCriticalStats;
           });
+          
+          // Always add critical stats to messages
+          setMessages(prev => {
+            // Force pet ID to be numeric
+            const petIdNum = parseInt(petId, 10);
+            const newData = {...data, pet_id: petIdNum};
+            
+            // Check if we already have this exact warning set in the messages
+            const isDuplicate = prev.some(msg => 
+              msg.type === 'pet_update' && 
+              msg.update_type === 'critical_stats' && 
+              msg.pet_id === petIdNum &&
+              JSON.stringify(msg.data.warnings) === JSON.stringify(warnings)
+            );
+            
+            if (!isDuplicate) {
+              console.log("Adding new critical stats message to messages array");
+              const newMessages = [...prev, newData];
+              return newMessages.slice(-100);
+            }
+            
+            console.log("Skipping duplicate critical stats message");
+            return prev;
+          });
         }
-        
-        // Always update the messages array
-        setMessages(prev => {
-          const newMessages = [...prev, data];
-          // Keep only the latest 100 messages
-          return newMessages.slice(-100);
-        });
+        else {
+          // For non-critical stats messages, check for duplicates
+          const messageTimestamp = data.data?.timestamp;
+          let shouldProcessMessage = true;
+          
+          if (messageTimestamp) {
+            const messageId = `${data.pet_id}-${data.update_type}-${messageTimestamp}`;
+            
+            if (processedMessageTimestamps[messageId]) {
+              console.log(`Skipping duplicate message with ID: ${messageId}`);
+              shouldProcessMessage = false;
+            } else {
+              setProcessedMessageTimestamps(prev => ({
+                ...prev,
+                [messageId]: true
+              }));
+            }
+          }
+          
+          if (shouldProcessMessage) {
+            setMessages(prev => {
+              const newMessages = [...prev, data];
+              return newMessages.slice(-100);
+            });
+          }
+        }
       } catch (err) {
         console.error('Error parsing WebSocket message:', err);
       }
@@ -124,7 +163,7 @@ export const WebSocketProvider = ({ children }) => {
     };
     
     socketRef.current = socket;
-  }, [isLoggedIn]); // Add isLoggedIn as a dependency since it's used in the function
+  }, [isLoggedIn, processedMessageTimestamps]); // Add processedMessageTimestamps as a dependency
   
   // Connect when the component mounts or when auth state changes
   useEffect(() => {
@@ -153,6 +192,41 @@ export const WebSocketProvider = ({ children }) => {
     return false;
   };
   
+  // Clean up old processed message timestamps after a certain period
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      // Get current timestamp
+      const now = Date.now();
+      // Keep messages from the last 5 minutes only
+      const fiveMinutesAgo = now - 5 * 60 * 1000;
+      
+      setProcessedMessageTimestamps(prev => {
+        const newTimestamps = {};
+        let cleaned = 0;
+        
+        // Only keep timestamps newer than 5 minutes ago
+        Object.entries(prev).forEach(([key, timestamp]) => {
+          const timestampParts = key.split('-');
+          const msgTimestamp = parseInt(timestampParts[timestampParts.length - 1]);
+          
+          if (!isNaN(msgTimestamp) && msgTimestamp * 1000 > fiveMinutesAgo) {
+            newTimestamps[key] = timestamp;
+          } else {
+            cleaned++;
+          }
+        });
+        
+        if (cleaned > 0) {
+          console.log(`Cleaned up ${cleaned} old message timestamps`);
+        }
+        
+        return newTimestamps;
+      });
+    }, 60000); // Check every minute
+    
+    return () => clearInterval(cleanupInterval);
+  }, []);
+  
   // Get current critical warnings for a pet
   const getPetCriticalWarnings = useCallback((petId) => {
     const petStats = criticalStats[petId] || {};
@@ -168,24 +242,57 @@ export const WebSocketProvider = ({ children }) => {
     
     // Add one critical stats message per pet's active warning types
     Object.entries(criticalStats).forEach(([petId, warnings]) => {
-      const petIdNum = parseInt(petId);
+      const petIdNum = parseInt(petId, 10);
       
       // For each warning type this pet has, add a message
       Object.entries(warnings).forEach(([warningType, warningMessage]) => {
+        console.log(`Adding critical ${warningType} message for pet ${petId}: ${warningMessage}`);
+        
         filteredMessages.push({
           type: 'pet_update',
           pet_id: petIdNum,
           update_type: 'critical_stats',
           data: {
             warnings: [warningMessage],
-            warning_type: warningType
+            warning_type: warningType,
+            timestamp: Date.now() / 1000 // Current timestamp
           }
         });
       });
     });
     
+    console.log("Filtered messages:", filteredMessages);
     return filteredMessages;
   }, [messages, criticalStats]);
+  
+  // Create a function to check if a message is a duplicate
+  const isDuplicateMessage = useCallback((messageId) => {
+    // If the messageId contains 'critical_stats', special handling for stats checks
+    if (messageId.includes('critical_stats')) {
+      // For critical stats, we'll be more lenient to ensure the initial check works
+      const parts = messageId.split('-');
+      const petId = parts[0];
+      const updateType = parts[1];
+      
+      // Look for any message with the same pet ID and update type 
+      // that was processed in the last second (to handle initial stats check)
+      const now = Date.now() / 1000;
+      
+      for (const key in processedMessageTimestamps) {
+        if (key.startsWith(`${petId}-${updateType}-`)) {
+          const timestamp = parseFloat(key.split('-')[2]);
+          // If there's a very recent message (within 0.5 seconds), consider it a duplicate
+          if (now - timestamp < 0.5) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    
+    // For other messages, exact match is required
+    return processedMessageTimestamps[messageId] === true;
+  }, [processedMessageTimestamps]);
   
   return (
     <WebSocketContext.Provider value={{ 
@@ -194,7 +301,8 @@ export const WebSocketProvider = ({ children }) => {
       sendMessage,
       getPetCriticalWarnings,
       relevantMessages: getFilteredMessages(), // Only include current relevant messages
-      latestMessages: messages.slice(-20) // Keep this for backward compatibility 
+      latestMessages: messages.slice(-20), // Keep this for backward compatibility
+      isDuplicateMessage // Add this new function to check for duplicates 
     }}>
       {children}
     </WebSocketContext.Provider>

@@ -82,7 +82,10 @@ class Pet(models.Model):
                     'type': 'pet_update',
                     'pet_id': self.id,
                     'update_type': update_type,
-                    'data': data or {}
+                    'data': {
+                        **(data or {}),
+                        'timestamp': timezone.now().timestamp()  # Add timestamp
+                    }
                 }
             )
             print(f"Successfully sent {update_type} update")
