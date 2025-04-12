@@ -13,7 +13,6 @@ export const WebSocketProvider = ({ children }) => {
   const socketRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 5;
-  const recentlyProcessedMessages = new Set();
   
   // Wrap the function with useCallback
   const connectWebSocket = useCallback(() => {
@@ -42,29 +41,11 @@ export const WebSocketProvider = ({ children }) => {
         console.log('RAW WebSocket message received:', e.data);
         console.log('Parsed WebSocket message:', data);
     
-        // Add a unique ID to each message for deduplication
-        const messageId = `${data.type}-${data.update_type || ''}-${Date.now()}`;
-        
-        // Only add the message if we haven't seen it recently
-        if (!recentlyProcessedMessages.has(messageId)) {
-          // Add to recent messages set with expiration
-          recentlyProcessedMessages.add(messageId);
-          setTimeout(() => recentlyProcessedMessages.delete(messageId), 2000); // Remove after 2 seconds
-          
-          setMessages(prev => {
-            const newMessages = [...prev, data];
-            // Keep only the latest 100 messages
-            return newMessages.slice(-100);
-          });
-    
-          // Only process pet_update messages once
-          if (data.type === 'pet_update') {
-            // Your pet update handling logic
-          }
-        } else {
-          console.log('Duplicate message detected, ignoring:', messageId);
-        }
-        
+        setMessages(prev => {
+          const newMessages = [...prev, data];
+          // Keep only the latest 100 messages
+          return newMessages.slice(-100);
+        });
       } catch (err) {
         console.error('Error parsing WebSocket message:', err);
       }

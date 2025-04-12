@@ -23,9 +23,6 @@ const PetDetail = () => {
   const [interactionResult, setInteractionResult] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(null);
-
-  // Add a ref to track processed messages
-  const processedMessagesRef = useRef(new Set());
   
   // Use the shared WebSocket context
   const { connected, latestMessages } = useWebSocket();
@@ -75,23 +72,8 @@ const PetDetail = () => {
       // Track if we need to fetch pet data (only fetch once per update cycle)
       let shouldFetchPet = false;
       
-      // Process any new relevant messages
+      // Process relevant messages
       relevantMessages.forEach(data => {
-        // Create a message ID for deduplication
-        const messageId = `${data.type}-${data.pet_id}-${data.update_type}-${JSON.stringify(data.data)}`;
-        
-        // Skip if we've processed this message recently
-        if (processedMessagesRef.current.has(messageId)) {
-          console.log('Skipping duplicate message:', messageId);
-          return;
-        }
-        
-        // Mark as processed and set up cleanup after 5 seconds
-        processedMessagesRef.current.add(messageId);
-        setTimeout(() => {
-          processedMessagesRef.current.delete(messageId);
-        }, 5000);
-        
         // Now process the message
         if (data.update_type === 'status_change') {
           // Show notification about status change
@@ -121,9 +103,9 @@ const PetDetail = () => {
       });
       
       // Only fetch pet data once if needed
-      if (shouldFetchPet) {
-        fetchPet();
-      }
+      // if (shouldFetchPet) {
+      //   fetchPet();
+      // }
     }
   }, [latestMessages, id, pet?.name, fetchPet]);
 
@@ -148,8 +130,6 @@ const PetDetail = () => {
   const handleManualRefresh = () => {
     fetchPet(true);
   };
-
-
 
   const handleInteraction = async (action) => {
     try {

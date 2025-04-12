@@ -57,9 +57,6 @@ const PetList = () => {
     }
   }, []);
 
-  // Add a ref to track processed messages
-  const processedMessagesRef = useRef(new Set());
-
   // Update the WebSocket message handler
   useEffect(() => {
     if (latestMessages && latestMessages.length > 0 && pets.length > 0) {
@@ -74,23 +71,8 @@ const PetList = () => {
       // Track if we need to fetch pet data (only fetch once per update cycle)
       let shouldFetchPets = false;
       
-      // Process any new messages
+      // Process messages
       petUpdateMessages.forEach(data => {
-        // Create a message ID for deduplication
-        const messageId = `${data.type}-${data.pet_id}-${data.update_type}-${JSON.stringify(data.data)}`;
-        
-        // Skip if we've processed this message recently
-        if (processedMessagesRef.current.has(messageId)) {
-          console.log('Skipping duplicate message:', messageId);
-          return;
-        }
-        
-        // Mark as processed and set up cleanup after 5 seconds
-        processedMessagesRef.current.add(messageId);
-        setTimeout(() => {
-          processedMessagesRef.current.delete(messageId);
-        }, 5000);
-        
         // Find the pet in our list if it exists
         const pet = pets.find(p => p.id === data.pet_id);
         const petName = pet?.name || 'Your pet';
@@ -124,9 +106,9 @@ const PetList = () => {
       });
       
       // Only fetch pets data once if needed
-      if (shouldFetchPets) {
-        fetchPets();
-      }
+      // if (shouldFetchPets) {
+      //   fetchPets();
+      // }
     }
   }, [latestMessages, pets, fetchPets]);
 
