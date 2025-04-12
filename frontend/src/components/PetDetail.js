@@ -1,7 +1,7 @@
 // src/components/PetDetail.js
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getPetById, interactWithPet, simulateTime } from '../services/api';
+import { getPetById, interactWithPet, simulateTime, checkPetStats } from '../services/api';
 import { toast, ToastContainer } from 'react-toastify';
 import { useWebSocket } from '../context/WebSocketContext';
 import 'react-toastify/dist/ReactToastify.css';
@@ -31,14 +31,14 @@ const PetDetail = () => {
   const refreshIntervalRef = useRef(null);
   
   // Configure toast options
-  const toastOptions = {
+  const toastOptions = useMemo(() => ({
     position: "top-right",
     autoClose: false,
     hideProgressBar: false,
     closeOnClick: true,
     pauseOnHover: true,
     draggable: true
-  };
+  }), []);
 
   // Function to fetch pet data
   const fetchPet = useCallback(async (isManualRefresh = false) => {
@@ -181,7 +181,18 @@ const PetDetail = () => {
   useEffect(() => {
     // Initial fetch
     fetchPet();
+
+    const checkStats = async () => {
+      try {
+        await checkPetStats();
+        console.log("Pet stats checked on page load");
+      } catch (err) {
+        console.error("Error checking pet stats:", err);
+      }
+    };
     
+    checkStats();
+
     // Set up auto-refresh every 60 seconds
     refreshIntervalRef.current = setInterval(() => {
       fetchPet();

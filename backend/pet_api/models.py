@@ -11,7 +11,7 @@ MAX_STAT = 1000
 CRITICAL_STAT_THRESHOLD = 200
 GOOD_STAT_THRESHOLD = 700
 SICK_HEALTH_THRESHOLD = 300
-FULL_SLEEP_THRESHOLD = 950
+FULL_SLEEP_THRESHOLD = 1000
 DEFAULT_STAT = 700  # 70% of max
 EVOLUTION_EXP_TEEN = 100
 EVOLUTION_EXP_ADULT = 200
@@ -99,14 +99,7 @@ class Pet(models.Model):
         old_stage = self.stage
         
         # First check if sleeping pet should wake up
-        if self.status == 'sleeping' and self.sleep >= FULL_SLEEP_THRESHOLD:
-            self.status = 'alive'
-            self.sleep_start_time = None
-            self.send_update_to_owner('status_change', {
-                'old_status': 'sleeping',
-                'new_status': 'alive',
-                'message': f"{self.name} woke up feeling refreshed!"
-            })
+        self._check_auto_wakeup()
         
         # Apply a single interval of changes - assume ~5 minutes has passed
         self._apply_interval_changes()
@@ -236,7 +229,8 @@ class Pet(models.Model):
         # Health decreases faster if sick
         if self.status == 'sick':
             self.health = max(0, self.health - 3)
-    
+        self._check_auto_wakeup()
+
     def _apply_partial_interval_changes(self, factor):
         """Apply stat changes for a partial 5-minute interval"""
         if self.status == 'alive':
@@ -264,7 +258,20 @@ class Pet(models.Model):
                 self.health = min(MAX_STAT, self.health + 1)
         if self.status == 'sick':
             self.health = max(0, self.health - int(3 * factor))
+        self._check_auto_wakeup()
 
+    def _check_auto_wakeup(self):
+        """Check if pet should wake up due to full sleep and handle wakeup if needed"""
+        if self.status == 'sleeping' and self.sleep >= FULL_SLEEP_THRESHOLD:
+            self.status = 'alive'
+            self.sleep_start_time = None
+            # self.send_update_to_owner('status_change', {
+            #     'old_status': 'sleeping',
+            #     'new_status': 'alive',
+            #     'message': f"{self.name} woke up feeling fully rested!"
+            # })
+            return True
+        return False
 
 class Interaction(models.Model):
     pet = models.ForeignKey(Pet, on_delete=models.CASCADE, related_name='interactions')
