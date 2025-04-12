@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getPetById, interactWithPet, simulateTime } from '../services/api';
 import { toast, ToastContainer } from 'react-toastify';
+import { useWebSocket } from '../context/WebSocketContext';
 import 'react-toastify/dist/ReactToastify.css';
 
 // Import pet stat constants
@@ -22,11 +23,12 @@ const PetDetail = () => {
   const [interactionResult, setInteractionResult] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState(null);
-  const [socket, setSocket] = useState(null);
+
+  // Use the shared WebSocket context
+  const { connected, latestMessages } = useWebSocket();
   
-  // Refs to store the interval ID and socket for cleanup
+  // Ref to store the interval ID for cleanup
   const refreshIntervalRef = useRef(null);
-  const socketRef = useRef(null);
 
   // Function to fetch pet data
   const fetchPet = useCallback(async (isManualRefresh = false) => {
@@ -56,27 +58,38 @@ const PetDetail = () => {
     }
   }, [id]);
 
-  // Handle WebSocket setup
+  // Update the WebSocket message handler
   useEffect(() => {
-    // Create WebSocket connection
-    // const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-    const webSocketUrl = 'ws://localhost:8000/ws/pets/';
-    
-    console.log(`Connecting to WebSocket at: ${webSocketUrl}`);
-    const newSocket = new WebSocket(webSocketUrl);
-    socketRef.current = newSocket;
-    
-    newSocket.onopen = () => {
-      console.log('WebSocket connection established');
-      setSocket(newSocket);
-    };
-    
-    newSocket.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      console.log('WebSocket message received:', data);
+    if (latestMessages && latestMessages.length > 0) {
+      // For debug purpose
+      console.log("Latest messages:", latestMessages);
       
-      if (data.type === 'pet_update' && data.pet_id === parseInt(id)) {
-        // Handle different update types
+      // Check the most recent messages for updates relevant to this pet
+      const relevantMessages = latestMessages.filter(data => 
+        data.type === 'pet_update' && data.pet_id === parseInt(id)
+      );
+      
+      // Track if we need to fetch pet data (only fetch once per update cycle)
+      let shouldFetchPet = false;
+      
+      // Process any new relevant messages
+      relevantMessages.forEach(data => {
+        // Create a message ID for deduplication
+        const messageId = `${data.type}-${data.pet_id}-${data.update_type}-${JSON.stringify(data.data)}`;
+        
+        // Skip if we've processed this message recently
+        if (processedMessagesRef.current.has(messageId)) {
+          console.log('Skipping duplicate message:', messageId);
+          return;
+        }
+        
+        // Mark as processed and set up cleanup after 5 seconds
+        processedMessagesRef.current.add(messageId);
+        setTimeout(() => {
+          processedMessagesRef.current.delete(messageId);
+        }, 5000);
+        
+        // Now process the message
         if (data.update_type === 'status_change') {
           // Show notification about status change
           if (data.data.new_status === 'sick') {
@@ -88,13 +101,11 @@ const PetDetail = () => {
           } else {
             toast.info(data.data.message || `${pet?.name}'s status changed to ${data.data.new_status}.`);
           }
-          // Refresh pet data
-          fetchPet();
+          shouldFetchPet = true;
         } else if (data.update_type === 'evolution') {
           // Show notification about evolution
           toast.success(data.data.message || `${pet?.name} evolved from ${data.data.old_stage} to ${data.data.new_stage}!`);
-          // Refresh pet data
-          fetchPet();
+          shouldFetchPet = true;
         } else if (data.update_type === 'critical_stats') {
           // Show notifications for critical stats
           if (data.data.warnings && Array.isArray(data.data.warnings)) {
@@ -102,45 +113,23 @@ const PetDetail = () => {
               toast.warning(warning);
             });
           }
-          // Refresh pet data
-          fetchPet();
+          shouldFetchPet = true;
         }
-      }
-    };
-    
-    newSocket.onclose = (e) => {
-      console.log('WebSocket connection closed:', e);
+      });
       
-      // Try to reconnect after 5 seconds if not an intentional close
-      if (e.code !== 1000) {
-        setTimeout(() => {
-          console.log('Attempting to reconnect WebSocket...');
-          // This will trigger the useEffect again
-          setSocket(null);
-        }, 5000);
+      // Only fetch pet data once if needed
+      if (shouldFetchPet) {
+        fetchPet();
       }
-    };
-    
-    newSocket.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-    
-    // Clean up on unmount
-    return () => {
-      if (socketRef.current) {
-        console.log('Closing WebSocket connection...');
-        // Use code 1000 for normal closure
-        socketRef.current.close(1000, 'Component unmounting');
-      }
-    };
-  }, [id, pet?.name, fetchPet]);
+    }
+  }, [latestMessages, id, pet?.name, fetchPet]);
 
-  // Set up polling - with a longer interval since we have WebSockets for critical updates
+  // Initial fetch and polling setup
   useEffect(() => {
     // Initial fetch
     fetchPet();
     
-    // Set up auto-refresh every 60 seconds (reduced frequency because of WebSockets)
+    // Set up auto-refresh every 60 seconds
     refreshIntervalRef.current = setInterval(() => {
       fetchPet();
     }, 60000);
@@ -156,6 +145,8 @@ const PetDetail = () => {
   const handleManualRefresh = () => {
     fetchPet(true);
   };
+
+
 
   const handleInteraction = async (action) => {
     try {
@@ -281,7 +272,7 @@ const PetDetail = () => {
                 <div>
                   <small className="text-muted">Last updated: {formatLastRefreshed()}</small>
                   <small className="text-muted ms-3">
-                    WebSocket: {socket ? <span className="text-success">Connected</span> : <span className="text-danger">Disconnected</span>}
+                    WebSocket: {connected ? <span className="text-success">Connected</span> : <span className="text-danger">Disconnected</span>}
                   </small>
                 </div>
               </div>

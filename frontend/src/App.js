@@ -10,6 +10,7 @@ import Login from './components/Login';
 import ProtectedRoute from './components/ProtectedRoute';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import WebSocketTest from './components/WebSocketTest';
+import { WebSocketProvider } from './context/WebSocketContext';
 
 function AppWithRouter() {
   return (
@@ -44,7 +45,9 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <AppWithRouter />
+        <WebSocketProvider>
+          <AppWithRouter />
+        </WebSocketProvider>
       </AuthProvider>
     </Router>
   );

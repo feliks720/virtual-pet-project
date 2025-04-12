@@ -55,18 +55,23 @@ class Pet(models.Model):
 
     def send_update_to_owner(self, update_type, data=None):
         """Send a WebSocket update to the pet owner"""
+        print(f"Attempting to send update: {update_type} for pet {self.id}, data: {data}")
+
         channel_layer = get_channel_layer()
         
         if not channel_layer:
+            print("No channel layer available!")
             return
             
         try:
             # For authenticated users
             if self.owner and hasattr(self.owner, 'id'):
                 group_name = f"pet_updates_{self.owner.id}"
+                print(f"Sending to group: {group_name}")
             else:
                 # For anonymous users during development
                 group_name = "pet_updates_anonymous"
+                print(f"Sending to anonymous group")
                 
             async_to_sync(channel_layer.group_send)(
                 group_name,
@@ -77,6 +82,7 @@ class Pet(models.Model):
                     'data': data or {}
                 }
             )
+            print(f"Successfully sent {update_type} update")
         except Exception as e:
             # Log the error but don't interrupt pet updates
             print(f"WebSocket error for pet {self.id}: {str(e)}")
@@ -90,7 +96,7 @@ class Pet(models.Model):
         old_stage = self.stage
         
         # First check if sleeping pet should wake up
-        if self.status == 'sleeping' and self.sleep_start_time and self.sleep >= FULL_SLEEP_THRESHOLD:
+        if self.status == 'sleeping' and self.sleep >= FULL_SLEEP_THRESHOLD:
             self.status = 'alive'
             self.sleep_start_time = None
             self.send_update_to_owner('status_change', {
@@ -171,6 +177,9 @@ class Pet(models.Model):
     def _check_critical_stats(self):
         """Check for critically low stats and notify owner"""
         warnings = []
+
+        print(f"Checking critical stats for pet {self.id}: hunger={self.hunger}, happiness={self.happiness}, hygiene={self.hygiene}, sleep={self.sleep}")
+        print(f"Critical threshold is {CRITICAL_STAT_THRESHOLD}")
         
         if self.hunger < CRITICAL_STAT_THRESHOLD:
             warnings.append(f"{self.name} is very hungry!")
@@ -188,6 +197,8 @@ class Pet(models.Model):
             self.send_update_to_owner('critical_stats', {
                 'warnings': warnings
             })
+        else:
+            print("No critical stats detected")
     
     def _apply_interval_changes(self):
         """Apply stat changes for a single 5-minute interval"""

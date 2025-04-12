@@ -1,3 +1,4 @@
+# virtual_pet_project/settings.py
 """
 Django settings for virtual_pet_project project.
 
@@ -84,8 +85,10 @@ ASGI_APPLICATION = 'virtual_pet_project.asgi.application'
 
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
-        # Use Redis in production
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+        },
     },
 }
 

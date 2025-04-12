@@ -171,9 +171,6 @@ class PetViewSet(viewsets.ModelViewSet):
     def simulate_time(self, request, pk=None):
         pet = self.get_object()
         
-        # First, update stats based on real time passed
-        pet.update_stats()
-        
         # Get minutes to simulate
         minutes = int(request.data.get('minutes', 5))
         
@@ -213,9 +210,13 @@ class PetViewSet(viewsets.ModelViewSet):
             
             # Check for evolution
             pet._check_evolution()
-            
+
+            # Check for critical stats
+            pet._check_critical_stats()
+
             pet.save()
-        
+    
+
         # Get fresh data after all updates
         pet = self.get_object()
         serializer = PetSerializer(pet)

@@ -18,12 +18,12 @@ django.setup()
 
 # Import these only after django.setup()
 from channels.routing import ProtocolTypeRouter, URLRouter
-from channels.auth import AuthMiddlewareStack
+from pet_api.middleware import TokenAuthMiddleware
 import pet_api.routing
 
 application = ProtocolTypeRouter({
     "http": get_asgi_application(),
-    "websocket": AuthMiddlewareStack(
+    "websocket": TokenAuthMiddleware(
         URLRouter(
             pet_api.routing.websocket_urlpatterns
         )

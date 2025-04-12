@@ -1,60 +1,23 @@
 // src/components/WebSocketTest.js
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useWebSocket } from '../context/WebSocketContext';
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 const WebSocketTest = () => {
-  const [socketStatus, setSocketStatus] = useState('Disconnected');
-  const [messages, setMessages] = useState([]);
+  const { connected, latestMessages, sendMessage } = useWebSocket();
   const [testMessage, setTestMessage] = useState('Hello from client');
-  
-  useEffect(() => {
-    // Create direct WebSocket connection to Daphne server
-    const socketUrl = 'ws://localhost:8000/ws/pets/';
-    
-    console.log(`Attempting direct WebSocket connection to: ${socketUrl}`);
-    const socket = new WebSocket(socketUrl);
-    
-    socket.onopen = () => {
-      console.log('✅ WebSocket connection SUCCESSFUL');
-      setSocketStatus('Connected');
-    };
-    
-    socket.onmessage = (event) => {
-      console.log('📨 Message received:', event.data);
-      try {
-        const data = JSON.parse(event.data);
-        setMessages(prev => [...prev, data]);
-      } catch (err) {
-        console.error('Error parsing message:', err);
-        setMessages(prev => [...prev, { error: 'Failed to parse message', raw: event.data }]);
-      }
-    };
-    
-    socket.onerror = (error) => {
-      console.error('❌ WebSocket ERROR:', error);
-      setSocketStatus('Error: See console');
-    };
-    
-    socket.onclose = (event) => {
-      console.log(`⚠️ WebSocket connection closed: code=${event.code}, reason=${event.reason}`);
-      setSocketStatus('Disconnected');
-    };
-    
-    // Clean up on unmount
-    return () => {
-      console.log('Closing WebSocket connection...');
-      socket.close();
-    };
-  }, []);
   
   const sendTestMessage = () => {
     try {
-      if (socketStatus === 'Connected') {
-        const socket = new WebSocket('ws://localhost:8000/ws/pets/');
-        socket.onopen = () => {
-          socket.send(JSON.stringify({ message: testMessage }));
+      if (connected) {
+        // Use the shared sendMessage function from the context
+        const success = sendMessage({ message: testMessage });
+        if (success) {
           console.log('Test message sent');
-          socket.close();
-        };
+        } else {
+          console.error('Failed to send message');
+        }
       } else {
         console.error('Cannot send message, socket not connected');
       }
@@ -65,13 +28,14 @@ const WebSocketTest = () => {
   
   return (
     <div className="container mt-5">
+      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
       <h2>WebSocket Test</h2>
       <div className="card">
         <div className="card-header d-flex justify-content-between align-items-center">
           <div>
             WebSocket Status: 
-            <span className={`ms-2 badge ${socketStatus === 'Connected' ? 'bg-success' : 'bg-danger'}`}>
-              {socketStatus}
+            <span className={`ms-2 badge ${connected ? 'bg-success' : 'bg-danger'}`}>
+              {connected ? 'Connected' : 'Disconnected'}
             </span>
           </div>
           <div>
@@ -96,20 +60,54 @@ const WebSocketTest = () => {
               <button 
                 className="btn btn-primary" 
                 onClick={sendTestMessage}
-                disabled={socketStatus !== 'Connected'}
+                disabled={!connected}
               >
                 Send
               </button>
             </div>
           </div>
           
+          {/* Test toast notification button */}
+          <div className="mb-3">
+            <button 
+              onClick={() => {
+                toast.warning("Test toast notification");
+                console.log("Test toast triggered");
+              }}
+              className="btn btn-warning"
+            >
+              Test Toast Notification
+            </button>
+          </div>
+
+          {/* Direct WebSocket test button */}
+          <div className="mb-3">
+            <button 
+              onClick={() => {
+                const testData = {
+                  type: 'pet_update',
+                  pet_id: 2,
+                  update_type: 'critical_stats',
+                  data: {warnings: ['Test direct WebSocket message']}
+                };
+                
+                console.log("Sending test data via context:", testData);
+                sendMessage(testData);
+              }}
+              className="btn btn-info text-white"
+              disabled={!connected}
+            >
+              Send Test Pet Update
+            </button>
+          </div>
+          
           <h5>Received Messages:</h5>
           <div className="border rounded p-3 bg-light" style={{ minHeight: '200px', maxHeight: '300px', overflowY: 'auto' }}>
-            {messages.length === 0 ? (
+            {latestMessages.length === 0 ? (
               <p className="text-muted">No messages received yet</p>
             ) : (
               <ul className="list-group">
-                {messages.map((msg, idx) => (
+                {latestMessages.map((msg, idx) => (
                   <li key={idx} className="list-group-item mb-2">
                     <pre className="mb-0">{JSON.stringify(msg, null, 2)}</pre>
                   </li>
@@ -132,6 +130,9 @@ const WebSocketTest = () => {
               </li>
               <li className="list-group-item">
                 Look at browser console (F12) for detailed error messages
+              </li>
+              <li className="list-group-item">
+                Authentication token is now automatically included in WebSocket connections
               </li>
             </ul>
           </div>
